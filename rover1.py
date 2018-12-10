@@ -109,12 +109,12 @@ def print_status(device_status):
     return frame
 
 def main():
-    radio_port = ''
-    gnss_correction_port = ''
-    devices = []
-    device_status = [0, 0, 0, 0, 0]
-    device_msg_queue = Queue(1000)
-    pulse = Queue(1)                        # used for heartbeat
+    devices = []                            # list of connected serial devices
+    radio_port = ''                         # serial port that radio is connected to
+    gnss_correction_port = ''               # serial port that GNSS corrections should be forwarded to
+    device_status = [0, 0, 0, 0, 0]         # device "time to live" counter (set to 10 when data received, decremented by heartbeat)
+    device_msg_queue = Queue(1000)          # threadsafe queue for device data
+    pulse = Queue(1)                        # threadsafe heartbeat signal
     
     serial_devices = detect_serial_devices()
     for port in serial_devices:
@@ -122,6 +122,8 @@ def main():
             radio_port = port
         else:
             devices.append(port)
+    
+    # Debug code - to be deleted
     
     if radio_port != '':
         print('Radio connected on USB2.')
@@ -137,9 +139,11 @@ def main():
     if len(devices) == 1:
         print(str(len(devices)) + ' device connected.')
     else:
-        print(str(len(devices)) + ' devices connected.')    
+        print(str(len(devices)) + ' devices connected.')
     
+    # End debug
     
+    # Spawn a thread to listen to each connected serial device
     if len(devices) > 0:
         serial1 = serial.Serial(devices[0], 115200, timeout=1)
         thread1 = threading.Thread(target=serial_device, args=(serial1,1,device_msg_queue,device_status,),).start()
@@ -161,15 +165,19 @@ def main():
         if devices[3] == '/dev/serial/by-path/platform-3f980000.usb-usb-0:1.1.3:1.0-port0':
             gnss_correction_port = serial4
     
+    # Spawn the heartbeat thread
     heartbeat = threading.Thread(target=beat, args=(pulse, 5,),).start()
     
+    # Run forever...
     while True:
+        # Process/uplink device data in the queue
         if not device_msg_queue.empty():
             data = device_msg_queue.get()
             radio_serial.write(data)
-            print(len(data))
-            print(data)
+            print(len(data))                # DEBUG
+            print(data)                     # DEBUG
             
+        # Heartbeat actions
         if not pulse.empty():
             pulse.get()
             for i in range(len(device_status)):
